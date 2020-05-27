@@ -20,16 +20,15 @@ def fetch_private_ip_from_ec2(instance_id):
     logger.info("Fetching private IP for instance-id: %s", instance_id)
 
     ec2_response = ec2.describe_instances(InstanceIds=[instance_id])
-    try:
-      ip_address = ec2_response['Reservations'][0]['Instances'][0]['NetworkInterfaces'][0]['PrivateIpAddress']
-      logger.info("Found private IP for instance-id %s: %s", instance_id, ip_address)
-    except:
-      return ""
+    ip_address = ec2_response['Reservations'][0]['Instances'][0]['NetworkInterfaces'][0]['PrivateIpAddress']
+
+    logger.info("Found private IP for instance-id %s: %s", instance_id, ip_address)
+
     return ip_address
 
 def get_zone_name(zone_id):
    zone_response = route53.get_hosted_zone(Id=zone_id)
-   zone_name = zone_response['HostedZone']['Name']
+   zone_name = zone_response['HostedZone']['Name'][:-1]
  
    return zone_name
 
@@ -37,17 +36,24 @@ def get_zone_name(zone_id):
 def fetch_private_ip_from_route53(hostname, zone_id):
     logger.info("Fetching private IP for hostname: %s", hostname)
 
-    try:
-      ip_address = route53.list_resource_record_sets(
-          HostedZoneId=zone_id,
-          StartRecordName=hostname,
-          StartRecordType='A',
-          MaxItems='1'
-      )['ResourceRecordSets'][0]['ResourceRecords'][0]['Value']
+    try: 
+      search_result = route53.list_resource_record_sets(
+      HostedZoneId=zone_id,
+      StartRecordName=hostname,
+      StartRecordType='A',
+      MaxItems='1'
+      )['ResourceRecordSets'][0]
 
-      logger.info("Found private IP for hostname %s: %s", hostname, ip_address)
-    except:
-      return ""
+      if search_result['Name'][:-1].lower() != hostname.lower():
+        ip_address = ""
+
+      else:
+        ip_address = search_result['ResourceRecords'][0]['Value']
+        logger.info("Found private IP for hostname %s: %s", hostname, ip_address)
+    except IndexError:
+      ip_address = ""
+
+
     return ip_address
 
 # Fetches relevant tags from ASG
@@ -80,15 +86,12 @@ def fetch_first_available_count(hostname_pattern,instance_id, zone_id, asg_name)
           logger.info("No ip for %s - success",new_hostname)
           return my_counter
       my_instance = ec2.describe_instances(
-          Filters = [
-              {'Name':'private-ip-address','Values':[private_ip]},
-              {'Name':'instance-state-name','Values':['pending','running']}
-          ]
+          Filters = [{'Name':'private-ip-address','Values':[private_ip]}]
       )
       logger.info("Instance data: %s",my_instance)
       if len(my_instance['Reservations']) == 0:
-         logger.info("Reservations are empty - success")
-         return my_counter
+        logger.info("Reservations are empty - success")
+        return my_counter
       my_counter += 1
     return 0
 
@@ -102,7 +105,7 @@ def build_hostname(hostname_pattern, instance_id, zone_id, asg_name):
 
 # Updates the name tag of an instance
 def update_name_tag(instance_id, hostname):
-    tag_name = hostname.split('.')[0]
+    tag_name = hostname.split('.')[0].upper()
     logger.info("Updating name tag for instance-id %s with: %s", instance_id, tag_name)
     ec2.create_tags(
         Resources = [
@@ -116,6 +119,18 @@ def update_name_tag(instance_id, hostname):
         ]
     )
 
+def fetch_name_tag(instance_id):
+
+    logger.info("Fetching name tag for instance-id : %s", instance_id)
+    hostname = ec2.describe_tags(
+        Filters=[
+          {'Name': 'resource-id', 'Values': [instance_id] },
+          {'Name': 'key','Values': ['Name']}
+        ],
+    )['Tags'][0]['Value']
+    
+    return hostname
+
 # Updates a Route53 record
 def update_record(zone_id, ip, hostname, operation):
     logger.info("Changing record with %s for %s -> %s in %s", operation, hostname, ip, zone_id)
@@ -128,7 +143,7 @@ def update_record(zone_id, ip, hostname, operation):
                     'ResourceRecordSet': {
                         'Name': hostname,
                         'Type': 'A',
-                        'TTL': 300,
+                        'TTL': 30,
                         'ResourceRecords': [{'Value': ip}]
                     }
                 }
@@ -152,17 +167,22 @@ def process_message(message):
     instance_id =  message['EC2InstanceId']
 
     hostname_pattern, zone_id = fetch_tag_metadata(asg_name)
-    hostname = build_hostname(hostname_pattern, instance_id, zone_id, asg_name)
-    logger.info("Builded hostname: %s", hostname)
 
     if operation == "UPSERT":
-        private_ip = fetch_private_ip_from_ec2(instance_id)
+      hostname = build_hostname(hostname_pattern, instance_id, zone_id, asg_name)
+      private_ip = fetch_private_ip_from_ec2(instance_id)
+      update_name_tag(instance_id, hostname)
 
-        update_name_tag(instance_id, hostname)
-        update_record(zone_id, private_ip, hostname, operation)
-#    else:
-#        private_ip = fetch_private_ip_from_route53(hostname, zone_id)
+    else:
+      short_hostname = fetch_name_tag(instance_id)
+      dns_name = get_zone_name(zone_id)
+      hostname = '.'.join([short_hostname, dns_name])
+      private_ip = fetch_private_ip_from_route53(hostname, zone_id)
 
+    logger.info("Builded hostname: %s", hostname)
+    logger.info("Fetched instance ip: %s", private_ip)
+
+    update_record(zone_id, private_ip, hostname, operation)
 
 # Picks out the message from a SNS message and deserializes it
 def process_record(record):
