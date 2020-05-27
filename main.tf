@@ -26,7 +26,8 @@ resource "aws_iam_role_policy" "autoscale_handling" {
         "autoscaling:CompleteLifecycleAction",
         "ec2:DescribeInstances",
         "route53:GetHostedZone",
-        "ec2:CreateTags"
+        "ec2:CreateTags",
+        "ec2:DescribeTags"
       ],
       "Effect":"Allow",
       "Resource":"*"
@@ -132,4 +133,3 @@ resource "aws_sns_topic_subscription" "autoscale_handling" {
   protocol  = "lambda"
   endpoint  = aws_lambda_function.autoscale_handling.arn
 }
-
