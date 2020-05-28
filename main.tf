@@ -26,7 +26,8 @@ resource "aws_iam_role_policy" "autoscale_handling" {
         "autoscaling:CompleteLifecycleAction",
         "ec2:DescribeInstances",
         "route53:GetHostedZone",
-        "ec2:CreateTags"
+        "ec2:CreateTags",
+        "ec2:DescribeTags"
       ],
       "Effect":"Allow",
       "Resource":"*"
@@ -113,6 +114,7 @@ resource "aws_lambda_function" "autoscale_handling" {
   runtime          = "python2.7"
   source_code_hash = filebase64sha256(data.archive_file.autoscale.output_path)
   description      = "Handles DNS for autoscaling groups by receiving autoscaling notifications and setting/deleting records from route53"
+  reserved_concurrent_executions = 1
 }
 
 resource "aws_lambda_permission" "autoscale_handling" {
@@ -132,4 +134,3 @@ resource "aws_sns_topic_subscription" "autoscale_handling" {
   protocol  = "lambda"
   endpoint  = aws_lambda_function.autoscale_handling.arn
 }
-
