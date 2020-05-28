@@ -1,5 +1,4 @@
-[![Build Status](https://cloud.drone.io/api/badges/meltwater/terraform-aws-asg-dns-handler/status.svg)](https://cloud.drone.io/meltwater/terraform-aws-asg-dns-handler)
-
+[![Build Status](https://cloud.drone.io/api/badges/anisf/terraform-aws-asg-dns-handler/status.svg)](https://cloud.drone.io/anisf/terraform-aws-asg-dns-handler)
 # ASG DNS handler
 
 ## Purpose
@@ -34,8 +33,7 @@ tag {
 Once you have your ASG set up, you can just invoke this module and point to it:
 ```hcl
 module "clever_name_autoscale_dns" {
-  source  = "meltwater/asg-dns-handler/aws"
-  version = "x.y.z"
+  source  = "github.com/anisf/terraform-aws-asg-dns-handler.git?ref=v2.0.2"
 
   autoscale_update_name     = "clever_name"
   autoscale_group_names     = "${aws_autoscaling_group.my_asg.name}"
@@ -105,14 +103,13 @@ resource "aws_autoscaling_group" "my_asg" {
 
   tag {
     key                 = "asg:hostname_pattern"
-    value               = "${var.hostname_prefix}-#instanceid.${var.vpc_name}.testing@${var.internal_zone_id}"
+    value               = "${var.hostname_prefix}-#counter.${var.vpc_name}.testing@${var.internal_zone_id}"
     propagate_at_launch = true
   }
 }
 
 module "autoscale_dns" {
-  source = "meltwater/asg-dns-handler/aws"
-  version = "x.y.z"
+  source  = "github.com/anisf/terraform-aws-asg-dns-handler.git?ref=v2.0.2"
   
   autoscale_handler_unique_identifier = "my_asg_handler"
   autoscale_route53zone_arn           = var.internal_zone_id
